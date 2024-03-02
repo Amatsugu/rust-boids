@@ -1,7 +1,6 @@
 use bevy::{
 	prelude::*,
 	sprite::{MaterialMesh2dBundle, Mesh2dHandle},
-	window::PrimaryWindow,
 };
 pub struct Boids;
 
@@ -9,7 +8,7 @@ impl Plugin for Boids {
 	fn build(&self, app: &mut App) {
 		app.insert_resource(ClearColor(Color::rgb(0.09, 0., 0.0390625)))
 			.add_systems(Startup, init)
-			.add_systems(Update, (update_boid_vel, wrap_boids, simulate_boids));
+			.add_systems(Update, (simulate_boids, update_boid_vel).chain());
 	}
 }
 
@@ -19,20 +18,23 @@ fn simulate_boids(time: Res<Time>, mut boids: Query<(&Transform, &mut Vel), With
 		let mut a_total_vel = a.1.value;
 		let mut b_total_vel = b.1.value;
 		//Match Speed
-		let avg_vel = (a.1.value + b.1.value) / 2.;
-		a_total_vel += ((avg_vel - a_total_vel) / 8.) * time.delta_seconds();
-		b_total_vel -= ((avg_vel - b_total_vel) / 8.) * time.delta_seconds();
+		let dist = a.0.translation - b.0.translation;
+		let d = dist.length();
+		if d <= 100. {
+			let avg_vel = (a.1.value + b.1.value) / 2.;
+			a_total_vel += ((avg_vel - a_total_vel) / 8.) * time.delta_seconds();
+			b_total_vel -= ((avg_vel - b_total_vel) / 8.) * time.delta_seconds();
+		}
 
 		//Collision Avoidance
-		let dist = a.0.translation - b.0.translation;
-		if dist.length_squared() < 50. * 50. {
+		if d < 15. {
 			a_total_vel += dist * time.elapsed_seconds();
 			b_total_vel += -dist * time.elapsed_seconds();
 		} else {
 			//Flocking
-			let avg = (a.0.translation + b.0.translation) / 2.;
-			a_total_vel -= avg * 0.05 * time.elapsed_seconds();
-			b_total_vel += avg * 0.05 * time.elapsed_seconds();
+			// let avg_pos = (a.0.translation + b.0.translation) / 2.;
+			// a_total_vel += (avg_pos - a.0.translation) * 0.0001 * time.elapsed_seconds();
+			// b_total_vel += (avg_pos - b.0.translation) * 0.0001 * time.elapsed_seconds();
 		}
 
 		// println!("{}", a_total_vel.length());
@@ -42,8 +44,11 @@ fn simulate_boids(time: Res<Time>, mut boids: Query<(&Transform, &mut Vel), With
 
 	for (t, mut v) in &mut boids {
 		//Tend to Center
-		if t.translation.length_squared() > 500. * 500. {
-			v.value += -t.translation * time.elapsed_seconds() * 0.3;
+		let mut d = t.translation.length();
+		if d > 500. {
+			d -= 500.;
+			d /= 1000.;
+			v.value += -t.translation * time.elapsed_seconds() * remap(d, 0., 1., 0., 0.03);
 		}
 
 		//Limit Velocity
@@ -54,9 +59,13 @@ fn simulate_boids(time: Res<Time>, mut boids: Query<(&Transform, &mut Vel), With
 	}
 }
 
+fn remap(value: f32, low1: f32, high1: f32, low2: f32, high2: f32) -> f32 {
+	return low2 + (value - low1) * (high2 - low2) / (high1 - low1);
+}
+
 fn limit_velocity(v: &Vel) -> Vec3 {
 	let max_speed = 200.;
-	if v.value.length_squared() > max_speed * max_speed {
+	if v.value.length() > max_speed {
 		return v.value.normalize() * max_speed;
 	}
 	return v.value;
@@ -72,32 +81,6 @@ fn update_boid_vel(time: Res<Time>, mut query: Query<(&mut Transform, &Vel), Wit
 	}
 }
 
-fn wrap_boids(
-	cam_query: Query<(&Camera, &GlobalTransform)>,
-	window: Query<&Window, With<PrimaryWindow>>,
-	mut boids: Query<(&mut Transform, &mut Vel), With<Boid>>,
-) {
-	let (cam, cam_pos) = cam_query.single();
-	let w = window.single();
-	let (min, max) = (
-		cam.viewport_to_world_2d(cam_pos, (0., w.height()).into())
-			.unwrap(),
-		cam.viewport_to_world_2d(cam_pos, (w.width(), 0.).into())
-			.unwrap(),
-	);
-
-	for (mut t, mut v) in &mut boids {
-		if t.translation.x < min.x || t.translation.x > max.x {
-			v.value.x = -v.value.x;
-		}
-		if t.translation.y < min.y || t.translation.y > max.y {
-			v.value.y = -v.value.y;
-		}
-
-		t.translation = t.translation.min(max.extend(0.)).max(min.extend(0.));
-	}
-}
-
 fn init(
 	mut commands: Commands,
 	mut meshes: ResMut<Assets<Mesh>>,
@@ -105,7 +88,7 @@ fn init(
 ) {
 	commands.spawn(Camera2dBundle::default());
 
-	let size = 20;
+	let size = 50;
 
 	for x in 0..size {
 		for y in 0..size {
@@ -114,7 +97,11 @@ fn init(
 				Vec2::new(-5.0, -5.0),
 				Vec2::new(5.0, -5.0),
 			)));
-			let color = Color::hsl(360.0 * x as f32 / 10.0, 0.75, 0.7);
+			let color = Color::hsl(
+				360.0 * (x as f32 / size as f32),
+				y as f32 / size as f32,
+				0.7,
+			);
 			commands.spawn((
 				Boid,
 				Vel { value: Vec3::ZERO },

@@ -20,24 +20,30 @@ fn simulate_boids(time: Res<Time>, mut boids: Query<(&Transform, &mut Vel), With
 		//Match Speed
 		let dist = a.0.translation - b.0.translation;
 		let d = dist.length();
-		if d <= 100. {
+		if d <= 200. {
 			let avg_vel = (a.1.value + b.1.value) / 2.;
 			a_total_vel += ((avg_vel - a_total_vel) / 8.) * time.delta_seconds();
 			b_total_vel -= ((avg_vel - b_total_vel) / 8.) * time.delta_seconds();
 		}
 
 		//Collision Avoidance
-		if d < 15. {
+		if d < 10. {
 			a_total_vel += dist * time.elapsed_seconds();
 			b_total_vel += -dist * time.elapsed_seconds();
-		} else {
+		}
+		if d < 200. {
 			//Flocking
-			// let avg_pos = (a.0.translation + b.0.translation) / 2.;
-			// a_total_vel += (avg_pos - a.0.translation) * 0.0001 * time.elapsed_seconds();
-			// b_total_vel += (avg_pos - b.0.translation) * 0.0001 * time.elapsed_seconds();
+			let avg_pos = (a.0.translation + b.0.translation) / 2.;
+			a_total_vel += tend_to_point(a.0.translation, avg_pos) * 0.008 * time.elapsed_seconds();
+			b_total_vel += tend_to_point(b.0.translation, avg_pos) * 0.008 * time.elapsed_seconds();
 		}
 
 		// println!("{}", a_total_vel.length());
+		//Forward Vel
+		// let speed = 20.;
+		// a_total_vel += a.0.up() * speed * time.delta_seconds();
+		// b_total_vel += b.0.up() * speed * time.delta_seconds();
+
 		a.1.value = a_total_vel;
 		b.1.value = b_total_vel;
 	}
@@ -45,12 +51,14 @@ fn simulate_boids(time: Res<Time>, mut boids: Query<(&Transform, &mut Vel), With
 	for (t, mut v) in &mut boids {
 		//Tend to Center
 		let mut d = t.translation.length();
-		if d > 500. {
-			d -= 500.;
-			d /= 1000.;
-			v.value += -t.translation * time.elapsed_seconds() * remap(d, 0., 1., 0., 0.03);
+		let max_d = 500.;
+		if d > max_d {
+			d -= max_d;
+			d /= max_d;
+			v.value += tend_to_point(t.translation, Vec3::ZERO)
+				* time.elapsed_seconds()
+				* d.remap(0., 1., 0., 0.1);
 		}
-
 		//Limit Velocity
 		if v.value == Vec3::ZERO {
 			continue;
@@ -59,8 +67,9 @@ fn simulate_boids(time: Res<Time>, mut boids: Query<(&Transform, &mut Vel), With
 	}
 }
 
-fn remap(value: f32, low1: f32, high1: f32, low2: f32, high2: f32) -> f32 {
-	return low2 + (value - low1) * (high2 - low2) / (high1 - low1);
+fn tend_to_point(from: Vec3, to: Vec3) -> Vec3 {
+	let diff = to - from;
+	return diff.normalize();
 }
 
 fn limit_velocity(v: &Vel) -> Vec3 {
@@ -88,7 +97,7 @@ fn init(
 ) {
 	commands.spawn(Camera2dBundle::default());
 
-	let size = 50;
+	let size = 25;
 
 	for x in 0..size {
 		for y in 0..size {
